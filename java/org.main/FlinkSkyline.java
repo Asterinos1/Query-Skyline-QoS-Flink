@@ -1,6 +1,7 @@
 package org.main;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.api.common.state.*;
+import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.connector.kafka.sink.KafkaRecordSerializationSchema;
 import org.apache.flink.connector.kafka.sink.KafkaSink;
@@ -14,75 +15,73 @@ import java.util.*;
 
 public class FlinkSkyline {
     public static void main(String[] args) throws Exception {
+        final ParameterTool params = ParameterTool.fromArgs(args);
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+        int parallelism = params.getInt("parallelism", 4);
+        String algo = params.get("algo", "angle");
+        String inputTopic = params.get("input-topic", "input-tuples");
+        String queryTopic = params.get("query-topic", "queries");
+        String outputTopic = params.get("output-topic", "output-skyline");
+        double domainMax = params.getDouble("domain", 1000.0);
 
-        //fixed parameters
-        int parallelism = 4;
-        String algo = "angle"; //algorihtm options: "dim", "grid", "angle"
         env.setParallelism(parallelism);
 
-        //kafka topics for inserting tuples and query triggers.
         KafkaSource<String> tupleSrc = KafkaSource.<String>builder()
                 .setBootstrapServers("localhost:9092")
-                .setTopics("input-tuples")
-                .setStartingOffsets(OffsetsInitializer.earliest()) // ADD THIS LINE
+                .setTopics(inputTopic)
+                .setStartingOffsets(OffsetsInitializer.latest())
                 .setValueOnlyDeserializer(new SimpleStringSchema())
                 .build();
 
         KafkaSource<String> querySrc = KafkaSource.<String>builder()
-                .setBootstrapServers("localhost:9092").setTopics("queries")
-                .setValueOnlyDeserializer(new SimpleStringSchema()).build();
+                .setBootstrapServers("localhost:9092")
+                .setTopics(queryTopic)
+                .setValueOnlyDeserializer(new SimpleStringSchema())
+                .build();
 
-        //setting tuples stream
-        //it converts the input data (String) to tuples using the ServiceTuple class we created
-        DataStream<ServiceTuple> tuples = env.fromSource(tupleSrc,
-                        org.apache.flink.api.common.eventtime.WatermarkStrategy.noWatermarks(), "Tuples")
+        DataStream<ServiceTuple> tuples = env.fromSource(tupleSrc, org.apache.flink.api.common.eventtime.WatermarkStrategy.noWatermarks(), "Tuples")
                 .flatMap((String s, Collector<ServiceTuple> out) -> {
                     try {
                         String[] p = s.split(",");
-                        out.collect(new ServiceTuple(p[0], new double[]{Double.parseDouble(p[1]), Double.parseDouble(p[2])}));
-                    } catch (Exception e) {}
+                        double[] vals = new double[p.length - 1];
+                        for(int i = 1; i < p.length; i++) vals[i-1] = Double.parseDouble(p[i]);
+                        out.collect(new ServiceTuple(p[0], vals));
+                    } catch (Exception ignored) {}
                 }).returns(ServiceTuple.class);
 
-        //broadcast queries, basically message all workers that it's time to start processing the stream using the algorithm
-        //(using broadcast means we message all processes)
         MapStateDescriptor<String, String> desc = new MapStateDescriptor<>("q", String.class, String.class);
-        BroadcastStream<String> bQueries = env.fromSource(querySrc, org.apache.flink.api.common.eventtime.WatermarkStrategy.noWatermarks(), "Queries").broadcast(desc);
+        BroadcastStream<String> bQueries = env.fromSource(querySrc, org.apache.flink.api.common.eventtime.WatermarkStrategy.noWatermarks(), "Queries")
+                .broadcast(desc);
 
-        //partion data depending on the algorithm choice
         DataStream<ServiceTuple> partitioned = tuples.keyBy(t -> {
-            switch (algo) {
-                case "dim": //MR-Dim algorithm
-                    return (int) (t.values[0] / (1000.0 / parallelism));
-                case "grid": //MR-Grid algorithm
-                    return (int) (t.values[0] / 500) + (int) (t.values[1] / 500) * 2;
-                case "angle": //MR-Angle algorithm
+            switch (algo.toLowerCase()) {
+                case "mr-dim":
+                    return (int) (t.values[0] / (domainMax / parallelism));
+                case "mr-grid":
+                    return (int) (t.values[0] / (domainMax/2)) + (int) (t.values[1] / (domainMax/2)) * 2;
+                case "mr-angle":
                 default:
-                    //we set a default case to be the MR-Angle
-                    //compute the partition Pi that sn belongs to based on
-                    //the service sn’s coordinate value
                     double angle = Math.atan2(t.values[1], t.values[0]);
                     return (int) (angle / (Math.PI / 2 / parallelism));
             }
         });
 
-        //connect and process
         partitioned.connect(bQueries)
-                .process(new SkylineProcessor()) //use the custom SkylineProcessor class below (.process is a HOF)
+                .process(new SkylineProcessor())
                 .sinkTo(KafkaSink.<String>builder()
                         .setBootstrapServers("localhost:9092")
                         .setRecordSerializer(KafkaRecordSerializationSchema.builder()
-                                .setTopic("output-skyline").setValueSerializationSchema(new SimpleStringSchema()).build())
+                                .setTopic(outputTopic)
+                                .setValueSerializationSchema(new SimpleStringSchema()).build())
                         .build());
+
         env.execute("Distributed Skyline - " + algo);
     }
-
-    //Local Skyline Computation
+    //LOCAL skyline computation
     //we create the custom class SkylineProcessor based on the interface KeyedBroadcastProcessFunction
     //(this is expected when using .process() above.)
     //we use this implementation in order create a stateful operator since we are handling 2 input streams (tuples and queries)
     //(note to sunadelfos: using lambda functions could be messier or ronaldo-ier)
-
     public static class SkylineProcessor extends KeyedBroadcastProcessFunction<Integer, ServiceTuple, String, String> {
         private transient ListState<ServiceTuple> skyState;
         //creating functions according to the interface.
