@@ -66,7 +66,10 @@ def collect_metrics(output_filename):
                 t_latency = data.get("query_latency_ms", 0)
                 
                 # Raw Points (Can be large, so we keep it as a JSON string string)
-                raw_points = json.dumps(data.get("skyline_points", []))
+                # --- SAFE EXTRACTION FOR POINTS ---
+                # If key is missing (because I commented it out), default to empty string "[]"
+                raw_points_obj = data.get("skyline_points", [])
+                raw_points = json.dumps(raw_points_obj)
 
                 # 4. Print Summary to Console (Cleaner than printing the whole JSON)
                 print(f"[Query {q_id}] Records: {records} | Size: {size} | TotalTime: {t_total}ms")
