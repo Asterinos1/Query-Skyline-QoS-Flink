@@ -20,7 +20,7 @@ multiple Flink job runs without needing to parse dozens of raw CSV files dynamic
 # Run your experiments and copy the "TotalTime(ms)" 
 # for 100,000 records (Small) or 10M records (Large)
 
-dimensions = [2, 4, 8]
+dimensions = [2, 3, 4]
 
 # Objective: Processing Time (Seconds)
 # Enter the total processing time derived from the Flink job results.
@@ -93,3 +93,4 @@ def plot_paper_figures():
 
 if __name__ == "__main__":
     plot_paper_figures()
+
