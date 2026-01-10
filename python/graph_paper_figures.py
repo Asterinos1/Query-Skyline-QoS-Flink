@@ -12,17 +12,17 @@ dimensions = [2, 4, 8]
 # Objective 2: Processing Time (Seconds)
 # Example Data (Replace with yours!)
 time_results = {
-    "MR-Dim":   [65, 140, 420],  # Times for Dim 2, 4, 8
-    "MR-Grid":  [50, 100, 320],
-    "MR-Angle": [45, 60,  130]
+    "MR-Dim":   [19544, 27264, 716996],  # Times for Dim 2, 4, 8
+    "MR-Grid":  [17593, 26601, 691882],
+    "MR-Angle": [17282, 27015,  766937]
 }
 
 # Objective 3: Local Optimality (0.0 - 1.0)
 # Example Data (Replace with yours!)
 optimality_results = {
-    "MR-Dim":   [0.1, 0.2, 0.3],
-    "MR-Grid":  [0.15, 0.25, 0.4],
-    "MR-Angle": [0.25, 0.5, 0.8] 
+    "MR-Dim":   [0.7379, 0.6742, 0.25],
+    "MR-Grid":  [0.5415, 0.5906, 0.25],
+    "MR-Angle": [0.7453, 0.6652, 0.25] 
 }
 # ==========================================
 
@@ -32,7 +32,7 @@ def plot_paper_figures():
     for algo, times in time_results.items():
         plt.plot(dimensions, times, marker='o', label=algo)
     
-    plt.title("Processing Time vs Dimensionality (Paper Fig 5)")
+    plt.title("Processing Time vs Dimensionality (Cardinality 1 Million)")
     plt.xlabel("Dimensions")
     plt.ylabel("Processing Time (s)")
     plt.xticks(dimensions)
@@ -46,7 +46,7 @@ def plot_paper_figures():
     for algo, opts in optimality_results.items():
         plt.plot(dimensions, opts, marker='s', linestyle='--', label=algo)
 
-    plt.title("Local Skyline Optimality vs Dimensionality (Paper Fig 7)")
+    plt.title("Local Skyline Optimality vs Dimensionality (Cardinality 1 Million)")
     plt.xlabel("Dimensions")
     plt.ylabel("Optimality Ratio")
     plt.xticks(dimensions)
